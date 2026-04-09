@@ -4,62 +4,127 @@ import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime
 
-# --- CONFIGURATION ---
+# --- PRO UI INJECTION (CSS) ---
 st.set_page_config(page_title="SpotFlow Pro | UCC", page_icon="🚀", layout="wide")
 
-# --- THE ENGINE (MODEL) ---
+st.markdown("""
+    <style>
+    /* Main Background */
+    .stApp {
+        background-color: #0e1117;
+        color: #fafafa;
+    }
+    /* Card-like containers */
+    div[data-testid="stMetricValue"] {
+        font-size: 2rem !important;
+        color: #00d4ff !important;
+    }
+    .main-card {
+        background: #161b22;
+        padding: 20px;
+        border-radius: 15px;
+        border: 1px solid #30363d;
+        margin-bottom: 20px;
+    }
+    /* Responsive adjustment */
+    @media (max-width: 640px) {
+        .stMetric {
+            margin-bottom: 10px;
+        }
+    }
+    </style>
+    """, unsafe_with_html_usage=True)
+
+# --- THE ENGINE ---
 class SpotFlowEngine:
     def __init__(self):
         self.locations = pd.DataFrame([
-            {"name": "Main Library", "base": 0.45, "cap": 1200},
-            {"name": "Science Block C2", "base": 0.55, "cap": 250},
-            {"name": "FELT Theatre", "base": 0.20, "cap": 800},
-            {"name": "Old Exam Centre", "base": 0.15, "cap": 450},
-            {"name": "Cafeteria Hub", "base": 0.40, "cap": 150}
+            {"name": "Main Library", "base": 0.45, "cap": 1200, "type": "Study"},
+            {"name": "Science Block C2", "base": 0.55, "cap": 250, "type": "Lab"},
+            {"name": "FELT Theatre", "base": 0.20, "cap": 800, "type": "Lecture"},
+            {"name": "Old Exam Centre", "base": 0.15, "cap": 450, "type": "Study"},
+            {"name": "Cafeteria Hub", "base": 0.40, "cap": 150, "type": "Social"}
         ])
 
     def get_forecast(self, hour, is_exam):
+        # Math: Sinusoidal wave + Exam Multiplier
         time_weight = np.sin((hour - 8) * (np.pi / 12)) * 0.4 + 0.6
         multiplier = 1.85 if is_exam else 1.0
         results = self.locations.copy()
-        results['predicted_load'] = results['base'].apply(
+        results['load'] = results['base'].apply(
             lambda x: min(round((x * time_weight * multiplier) * 100, 1), 98.0)
         )
         return results
 
-# --- THE INTERFACE (VIEW) ---
 engine = SpotFlowEngine()
 
+# --- THE INTERFACE ---
 st.title("🚀 UCC SpotFlow Pro")
-st.markdown("### *Predictive Campus Resource Optimization*")
+st.caption("Predictive Analytics for Campus Congestion Management")
 
-col_ctrl, col_main = st.columns([1, 3])
-
-with col_ctrl:
-    st.header("Parameters")
-    hr = st.slider("Forecast Hour (24h)", 0, 23, datetime.now().hour)
-    exams = st.checkbox("Exam Window Active", value=True)
+# Sidebar for Mobile-Friendly Controls
+with st.sidebar:
+    st.header("🎛️ Control Center")
+    hr = st.select_slider("Select Time of Day", options=list(range(24)), value=datetime.now().hour)
+    exams = st.toggle("Exam Window Active", value=True)
     st.divider()
-    st.info("**Algorithm:** Weighted Temporal Inference v2.1")
+    st.markdown("### Model Version\n`v2.5-Stable-Prod`")
 
-forecast_data = engine.get_forecast(hr, exams)
+# Calculations
+data = engine.get_forecast(hr, exams)
+avg_load = data['load'].mean()
 
-with col_main:
-    k1, k2, k3 = st.columns(3)
-    avg_load = forecast_data['predicted_load'].mean()
-    k1.metric("Avg Campus Density", f"{round(avg_load)}%")
-    k2.metric("Most Available", forecast_data.loc[forecast_data['predicted_load'].idxmin()]['name'])
-    k3.metric("System Status", "Live / Predictive")
+# Responsive Metrics Row
+k1, k2, k3 = st.columns(3)
+with k1:
+    st.metric("Avg Campus Density", f"{round(avg_load)}%", delta="-2%" if avg_load < 50 else "+5%", delta_color="inverse")
+with k2:
+    available = data.loc[data['load'].idxmin()]['name']
+    st.metric("Best Study Spot", available)
+with k3:
+    st.metric("System Health", "Operational", delta="99.9% Uptime")
 
+st.divider()
+
+# Main Visuals
+col_chart, col_table = st.columns([2, 1])
+
+with col_chart:
+    st.subheader("Live Congestion Forecast")
+    # Custom Styled Plotly Chart
     fig = go.Figure(go.Bar(
-        x=forecast_data['predicted_load'],
-        y=forecast_data['name'],
+        x=data['load'],
+        y=data['name'],
         orientation='h',
-        marker=dict(color=forecast_data['predicted_load'], colorscale='RdYlGn_r')
+        marker=dict(
+            color=data['load'],
+            colorscale='Viridis',
+            line=dict(color='rgba(255, 255, 255, 0.5)', width=1)
+        )
     ))
-    fig.update_layout(xaxis_range=[0, 100], height=400, margin=dict(l=20, r=20, t=20, b=20))
+    fig.update_layout(
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        font=dict(color="white"),
+        xaxis=dict(range=[0, 100], title="Occupancy %", gridcolor='#30363d'),
+        yaxis=dict(autorange="reversed"),
+        margin=dict(l=0, r=0, t=20, b=20),
+        height=400
+    )
     st.plotly_chart(fig, use_container_width=True)
 
-    st.dataframe(forecast_data[['name', 'predicted_load', 'cap']], 
-                 column_config={"name": "Location", "predicted_load": st.column_config.ProgressColumn("Load Status", format="%f%%", min_value=0, max_value=100)},
-                 use_container_width=True)
+with col_table:
+    st.subheader("Location Details")
+    st.dataframe(
+        data[['name', 'type', 'load']],
+        column_config={
+            "name": "Location",
+            "type": "Category",
+            "load": st.column_config.ProgressColumn("Load", format="%f%%", min_value=0, max_value=100)
+        },
+        hide_index=True,
+        use_container_width=True
+    )
+
+st.markdown("---")
+st.markdown("Created for **Predict4Good Hackathon** | Data powered by UCC Facilities API (Simulated)")
