@@ -33,7 +33,7 @@ st.markdown("""
         }
     }
     </style>
-    """, unsafe_with_html_usage=True)
+    """, unsafe_allow_html=True)
 
 # --- THE ENGINE ---
 class SpotFlowEngine:
